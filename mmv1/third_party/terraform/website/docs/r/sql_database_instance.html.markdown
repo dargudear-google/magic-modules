@@ -197,6 +197,34 @@ resource "google_sql_database_instance" "main" {
 }
 ```
 
+### Cloud SQL Instance with PSC auto connections
+
+```hcl
+resource "google_sql_database_instance" "main" {
+  name             = "psc-enabled-main-instance"
+  database_version = "MYSQL_8_0"
+  settings {
+    tier    = "db-f1-micro"
+    ip_configuration {
+      psc_config {
+        psc_enabled = true
+        allowed_consumer_projects = ["allowed-consumer-project-name"]
+        psc_auto_connections {
+          consumer_network = "network-name"
+          consumer_service_project_id = "project-id"
+        }
+      }
+      ipv4_enabled = false
+    }
+    backup_configuration {
+      enabled = true
+      binary_log_enabled = true
+    }
+    availability_type = "REGIONAL"
+  }
+}
+```
+
 ## Argument Reference
 
 The following arguments are supported:
@@ -211,9 +239,9 @@ The following arguments are supported:
 
 * `database_version` - (Required) The MySQL, PostgreSQL or
 SQL Server version to use. Supported values include `MYSQL_5_6`,
-`MYSQL_5_7`, `MYSQL_8_0`, `POSTGRES_9_6`,`POSTGRES_10`, `POSTGRES_11`,
-`POSTGRES_12`, `POSTGRES_13`, `POSTGRES_14`, `POSTGRES_15`, `SQLSERVER_2017_STANDARD`,
-`SQLSERVER_2017_ENTERPRISE`, `SQLSERVER_2017_EXPRESS`, `SQLSERVER_2017_WEB`.
+`MYSQL_5_7`, `MYSQL_8_0`, `MYSQL_8_4`, `POSTGRES_9_6`,`POSTGRES_10`, `POSTGRES_11`,
+`POSTGRES_12`, `POSTGRES_13`, `POSTGRES_14`, `POSTGRES_15`, `POSTGRES_16`, `POSTGRES_17`,
+`SQLSERVER_2017_STANDARD`, `SQLSERVER_2017_ENTERPRISE`, `SQLSERVER_2017_EXPRESS`, `SQLSERVER_2017_WEB`.
 `SQLSERVER_2019_STANDARD`, `SQLSERVER_2019_ENTERPRISE`, `SQLSERVER_2019_EXPRESS`,
 `SQLSERVER_2019_WEB`.
 [Database Version Policies](https://cloud.google.com/sql/docs/db-versions)
@@ -234,7 +262,7 @@ includes an up-to-date reference of supported versions.
     is not provided, the provider project is used.
 
 * `replica_configuration` - (Optional) The configuration for replication. The
-    configuration is detailed below. 
+    configuration is detailed below.
 
 * `replica_names` - (Optional, Computed) List of replica names. Can be updated.
 
@@ -288,7 +316,7 @@ The `settings` block supports:
 
 * `collation` - (Optional) The name of server instance collation.
 
-* `connector_enforcement` - (Optional) Enables the enforcement of Cloud SQL Auth Proxy or Cloud SQL connectors for all the connections. If enabled, all the direct connections are rejected.
+* `connector_enforcement` - (Optional) Control the enforcement of Cloud SQL Auth Proxy or Cloud SQL connectors for all the connections, can be `REQUIRED` or `NOT_REQUIRED`. If enabled, all the direct connections are rejected.
 
 * `deletion_protection_enabled` - (Optional) Enables deletion protection of an instance at the GCP level. Enabling this protection will guard against accidental deletion across all surfaces (API, gcloud, Cloud Console and Terraform) by enabling the [GCP Cloud SQL instance deletion protection](https://cloud.google.com/sql/docs/postgres/deletion-protection). Terraform provider support was introduced in version 4.48.0. Defaults to `false`.
 
@@ -403,6 +431,12 @@ The optional `settings.ip_configuration.psc_config` sublist supports:
 * `psc_enabled` - (Optional) Whether PSC connectivity is enabled for this instance.
 
 * `allowed_consumer_projects` - (Optional) List of consumer projects that are allow-listed for PSC connections to this instance. This instance can be connected to with PSC from any network in these projects. Each consumer project in this list may be represented by a project number (numeric) or by a project id (alphanumeric).
+
+* The optional `psc_config.psc_auto_connections` subblock - (Optional) A comma-separated list of networks or a comma-separated list of network-project pairs. Each project in this list is represented by a project number (numeric) or by a project ID (alphanumeric). This allows Private Service Connect connections to be created automatically for the specified networks.
+
+* `consumer_network` - "The consumer network of this consumer endpoint. This must be a resource path that includes both the host project and the network name. For example, `projects/project1/global/networks/network1`. The consumer host project of this network might be different from the consumer service project."
+
+* `consumer_service_project_id` - (Optional) The project ID of consumer service project of this consumer endpoint.
 
 The optional `settings.location_preference` subblock supports:
 

@@ -430,7 +430,7 @@ func TestAccSqlDatabaseInstance_replica(t *testing.T) {
 			{
 				Config: fmt.Sprintf(
 					testGoogleSqlDatabaseInstance_replica, databaseID, databaseID, databaseID, "true"),
-				ExpectError: regexp.MustCompile("Error, failed to create instance tf-test-\\d+-2: googleapi: Error 400: Invalid request: Invalid flag for instance role: Backups cannot be enabled for read replica instance.., invalid"),
+				ExpectError: regexp.MustCompile("Error, failed to create instance tf-test-\\d+-2: googleapi: Error 400: Invalid request: Invalid flag for instance role: Backups cannot be enabled for read replica instance"),
 			},
 			{
 				Config: fmt.Sprintf(
@@ -944,13 +944,11 @@ func TestAccSqlDatabaseInstance_withPSCEnabled_thenAddAllowedConsumerProjects_th
 	})
 }
 
-func TestAccSqlDatabaseInstance_basicInstance_thenPSCEnabled(t *testing.T) {
+func TestAccSqlDatabaseInstance_withPSCEnabled_withoutPscAutoConnections(t *testing.T) {
 	t.Parallel()
 
 	instanceName := "tf-test-" + acctest.RandString(t, 10)
-	projectId := "psctestproject" + acctest.RandString(t, 10)
-	orgId := envvar.GetTestOrgFromEnv(t)
-	billingAccount := envvar.GetTestBillingAccountFromEnv(t)
+	projectId := envvar.GetTestProjectFromEnv()
 
 	acctest.VcrTest(t, resource.TestCase{
 		PreCheck:                 func() { acctest.AccTestPreCheck(t) },
@@ -958,7 +956,66 @@ func TestAccSqlDatabaseInstance_basicInstance_thenPSCEnabled(t *testing.T) {
 		CheckDestroy:             testAccSqlDatabaseInstanceDestroyProducer(t),
 		Steps: []resource.TestStep{
 			{
-				Config: testAccSqlDatabaseInstance_basicInstanceForPsc(instanceName, projectId, orgId, billingAccount),
+				Config: testAccSqlDatabaseInstance_withPSCEnabled_withoutPscAutoConnections(instanceName),
+				Check:  resource.ComposeTestCheckFunc(verifyPscAutoConnectionsOperation("google_sql_database_instance.instance", true, true, false, "", "")),
+			},
+			{
+				ResourceName:            "google_sql_database_instance.instance",
+				ImportState:             true,
+				ImportStateVerify:       true,
+				ImportStateIdPrefix:     fmt.Sprintf("%s/", projectId),
+				ImportStateVerifyIgnore: []string{"deletion_protection"},
+			},
+		},
+	})
+}
+
+func TestAccSqlDatabaseInstance_withPSCEnabled_withPscAutoConnections(t *testing.T) {
+	t.Parallel()
+
+	testId := "test-psc-auto-con" + acctest.RandString(t, 10)
+	instanceName := "tf-test-" + acctest.RandString(t, 10)
+	projectId := envvar.GetTestProjectFromEnv()
+	networkName := acctest.BootstrapSharedTestNetwork(t, testId)
+	network_short_link_name := fmt.Sprintf("projects/%s/global/networks/%s", projectId, networkName)
+
+	acctest.VcrTest(t, resource.TestCase{
+		PreCheck:                 func() { acctest.AccTestPreCheck(t) },
+		ProtoV5ProviderFactories: acctest.ProtoV5ProviderFactories(t),
+		CheckDestroy:             testAccSqlDatabaseInstanceDestroyProducer(t),
+		Steps: []resource.TestStep{
+			{
+				Config: testAccSqlDatabaseInstance_withPSCEnabled_withPscAutoConnections(instanceName, projectId, networkName),
+				Check:  resource.ComposeTestCheckFunc(verifyPscAutoConnectionsOperation("google_sql_database_instance.instance", true, true, true, network_short_link_name, projectId)),
+			},
+			{
+				ResourceName:            "google_sql_database_instance.instance",
+				ImportState:             true,
+				ImportStateVerify:       true,
+				ImportStateIdPrefix:     fmt.Sprintf("%s/", projectId),
+				ImportStateVerifyIgnore: []string{"deletion_protection"},
+			},
+		},
+	})
+}
+
+func TestAccSqlDatabaseInstance_withPSCEnabled_thenAddPscAutoConnections_thenRemovePscAutoConnections(t *testing.T) {
+	t.Parallel()
+
+	testId := "test-psc-auto-con" + acctest.RandString(t, 10)
+	instanceName := "tf-test-" + acctest.RandString(t, 10)
+	projectId := envvar.GetTestProjectFromEnv()
+	networkName := acctest.BootstrapSharedTestNetwork(t, testId)
+	network_short_link_name := fmt.Sprintf("projects/%s/global/networks/%s", projectId, networkName)
+
+	acctest.VcrTest(t, resource.TestCase{
+		PreCheck:                 func() { acctest.AccTestPreCheck(t) },
+		ProtoV5ProviderFactories: acctest.ProtoV5ProviderFactories(t),
+		CheckDestroy:             testAccSqlDatabaseInstanceDestroyProducer(t),
+		Steps: []resource.TestStep{
+			{
+				Config: testAccSqlDatabaseInstance_withPSCEnabled_withoutPscAutoConnections(instanceName),
+				Check:  resource.ComposeTestCheckFunc(verifyPscAutoConnectionsOperation("google_sql_database_instance.instance", true, true, false, "", "")),
 			},
 			{
 				ResourceName:            "google_sql_database_instance.instance",
@@ -968,8 +1025,19 @@ func TestAccSqlDatabaseInstance_basicInstance_thenPSCEnabled(t *testing.T) {
 				ImportStateVerifyIgnore: []string{"deletion_protection"},
 			},
 			{
-				Config:      testAccSqlDatabaseInstance_withPSCEnabled_withoutAllowedConsumerProjects(instanceName, projectId, orgId, billingAccount),
-				ExpectError: regexp.MustCompile("PSC connectivity can not be enabled"),
+				Config: testAccSqlDatabaseInstance_withPSCEnabled_withPscAutoConnections(instanceName, projectId, networkName),
+				Check:  resource.ComposeTestCheckFunc(verifyPscAutoConnectionsOperation("google_sql_database_instance.instance", true, true, true, network_short_link_name, projectId)),
+			},
+			{
+				ResourceName:            "google_sql_database_instance.instance",
+				ImportState:             true,
+				ImportStateVerify:       true,
+				ImportStateIdPrefix:     fmt.Sprintf("%s/", projectId),
+				ImportStateVerifyIgnore: []string{"deletion_protection"},
+			},
+			{
+				Config: testAccSqlDatabaseInstance_withPSCEnabled_withoutPscAutoConnections(instanceName),
+				Check:  resource.ComposeTestCheckFunc(verifyPscAutoConnectionsOperation("google_sql_database_instance.instance", true, true, false, "", "")),
 			},
 		},
 	})
@@ -990,7 +1058,7 @@ func TestAccSqlDatabaseInstance_withPSCEnabled_withIpV4Enabled(t *testing.T) {
 		Steps: []resource.TestStep{
 			{
 				Config:      testAccSqlDatabaseInstance_withPSCEnabled_withIpV4Enable(instanceName, projectId, orgId, billingAccount),
-				ExpectError: regexp.MustCompile("PSC connectivity cannot be enabled together with public IP"),
+				ExpectError: regexp.MustCompile("PSC connectivity cannot be enabled together with only public IP"),
 			},
 		},
 	})
@@ -1516,8 +1584,9 @@ func TestAccSqlDatabaseInstance_encryptionKey_replicaInDifferentRegion(t *testin
 
 	context := map[string]interface{}{
 		"project_id":    envvar.GetTestProjectFromEnv(),
-		"key_name":      "tf-test-key-" + acctest.RandString(t, 10),
 		"instance_name": "tf-test-sql-" + acctest.RandString(t, 10),
+		"kms_key_name1": acctest.BootstrapKMSKeyWithPurposeInLocationAndName(t, "ENCRYPT_DECRYPT", "us-central1", "tf-bootstrap-sql-database-instance-key1").CryptoKey.Name,
+		"kms_key_name2": acctest.BootstrapKMSKeyWithPurposeInLocationAndName(t, "ENCRYPT_DECRYPT", "us-east1", "tf-bootstrap-sql-database-instance-key2").CryptoKey.Name,
 	}
 
 	acctest.VcrTest(t, resource.TestCase{
@@ -1687,9 +1756,9 @@ func TestAccSQLDatabaseInstance_sqlMysqlDataCacheConfig(t *testing.T) {
 		CheckDestroy:             testAccSqlDatabaseInstanceDestroyProducer(t),
 		Steps: []resource.TestStep{
 			{
-				Config: testGoogleSqlDatabaseInstance_sqlMysqlDataCacheConfig(instanceName),
+				Config: testGoogleSqlDatabaseInstance_sqlMysqlDataCacheConfig(instanceName, false),
 				Check: resource.ComposeAggregateTestCheckFunc(
-					resource.TestCheckResourceAttr("google_sql_database_instance.instance", "settings.0.data_cache_config.0.data_cache_enabled", "true"),
+					resource.TestCheckResourceAttr("google_sql_database_instance.instance", "settings.0.data_cache_config.0.data_cache_enabled", "false"),
 				),
 			},
 			{
@@ -1697,6 +1766,12 @@ func TestAccSQLDatabaseInstance_sqlMysqlDataCacheConfig(t *testing.T) {
 				ImportState:             true,
 				ImportStateVerify:       true,
 				ImportStateVerifyIgnore: []string{"deletion_protection"},
+			},
+			{
+				Config: testGoogleSqlDatabaseInstance_sqlMysqlDataCacheConfig(instanceName, true),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("google_sql_database_instance.instance", "settings.0.data_cache_config.0.data_cache_enabled", "true"),
+				),
 			},
 		},
 	})
@@ -1714,7 +1789,7 @@ func TestAccSQLDatabaseInstance_sqlPostgresDataCacheConfig(t *testing.T) {
 		CheckDestroy:             testAccSqlDatabaseInstanceDestroyProducer(t),
 		Steps: []resource.TestStep{
 			{
-				Config: testGoogleSqlDatabaseInstance_sqlPostgresDataCacheConfig(enterprisePlusInstanceName, enterprisePlusTier, "ENTERPRISE_PLUS"),
+				Config: testGoogleSqlDatabaseInstance_sqlPostgresDataCacheConfig(enterprisePlusInstanceName, enterprisePlusTier, "ENTERPRISE_PLUS", true),
 				Check: resource.ComposeAggregateTestCheckFunc(
 					resource.TestCheckResourceAttr("google_sql_database_instance.instance", "settings.0.data_cache_config.0.data_cache_enabled", "true"),
 				),
@@ -1726,9 +1801,21 @@ func TestAccSQLDatabaseInstance_sqlPostgresDataCacheConfig(t *testing.T) {
 				ImportStateVerifyIgnore: []string{"deletion_protection"},
 			},
 			{
-				Config: testGoogleSqlDatabaseInstance_sqlPostgresDataCacheConfig(enterpriseInstanceName, enterpriseTier, "ENTERPRISE"),
+				Config: testGoogleSqlDatabaseInstance_sqlPostgresDataCacheConfig(enterprisePlusInstanceName, enterprisePlusTier, "ENTERPRISE_PLUS", false),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("google_sql_database_instance.instance", "settings.0.data_cache_config.0.data_cache_enabled", "false"),
+				),
+			},
+			{
+				ResourceName:            "google_sql_database_instance.instance",
+				ImportState:             true,
+				ImportStateVerify:       true,
+				ImportStateVerifyIgnore: []string{"deletion_protection"},
+			},
+			{
+				Config: testGoogleSqlDatabaseInstance_sqlPostgresDataCacheConfig(enterpriseInstanceName, enterpriseTier, "ENTERPRISE", true),
 				ExpectError: regexp.MustCompile(
-					fmt.Sprintf("Error, failed to create instance %s: googleapi: Error 400: Invalid request: Only ENTERPRISE PLUS edition supports data cache.., invalid", enterpriseInstanceName)),
+					fmt.Sprintf("Error, failed to create instance %s: googleapi: Error 400: Invalid request: Only ENTERPRISE PLUS edition supports data cache", enterpriseInstanceName)),
 			},
 		},
 	})
@@ -1756,7 +1843,7 @@ func TestAccSqlDatabaseInstance_Mysql_Edition_Upgrade(t *testing.T) {
 				ImportStateVerifyIgnore: []string{"deletion_protection"},
 			},
 			{
-				Config: testGoogleSqlDatabaseInstance_sqlMysqlDataCacheConfig(editionUpgrade),
+				Config: testGoogleSqlDatabaseInstance_sqlMysqlDataCacheConfig(editionUpgrade, true),
 				Check: resource.ComposeAggregateTestCheckFunc(
 					resource.TestCheckResourceAttr("google_sql_database_instance.instance", "settings.0.edition", "ENTERPRISE_PLUS"),
 					resource.TestCheckResourceAttr("google_sql_database_instance.instance", "settings.0.data_cache_config.0.data_cache_enabled", "true"),
@@ -1811,7 +1898,6 @@ func TestAccSqlDatabaseInstance_Postgres_Edition_Upgrade(t *testing.T) {
 }
 
 func TestAccSqlDatabaseInstance_Edition_Downgrade(t *testing.T) {
-	t.Skip("https://github.com/hashicorp/terraform-provider-google/issues/20010")
 	t.Parallel()
 	enterprisePlusTier := "db-perf-optimized-N-2"
 	enterpriseTier := "db-custom-2-13312"
@@ -2178,7 +2264,7 @@ func TestAccSqlDatabaseInstance_activationPolicy(t *testing.T) {
 				ImportStateVerifyIgnore: []string{"deletion_protection", "root_password"},
 			},
 			{
-				Config: testGoogleSqlDatabaseInstance_activationPolicy(instanceName, "MYSQL_8_0_26", "NEVER", true),
+				Config: testGoogleSqlDatabaseInstance_activationPolicy(instanceName, "MYSQL_8_0_37", "NEVER", true),
 			},
 			{
 				ResourceName:            "google_sql_database_instance.instance",
@@ -2187,7 +2273,16 @@ func TestAccSqlDatabaseInstance_activationPolicy(t *testing.T) {
 				ImportStateVerifyIgnore: []string{"deletion_protection", "root_password"},
 			},
 			{
-				Config: testGoogleSqlDatabaseInstance_activationPolicy(instanceName, "MYSQL_8_0_26", "ALWAYS", false),
+				Config: testGoogleSqlDatabaseInstance_activationPolicy(instanceName, "MYSQL_8_0_37", "ALWAYS", false),
+			},
+			{
+				ResourceName:            "google_sql_database_instance.instance",
+				ImportState:             true,
+				ImportStateVerify:       true,
+				ImportStateVerifyIgnore: []string{"deletion_protection", "root_password"},
+			},
+			{
+				Config: testGoogleSqlDatabaseInstance_activationPolicy(instanceName, "MYSQL_8_4", "ALWAYS", false),
 			},
 			{
 				ResourceName:            "google_sql_database_instance.instance",
@@ -2832,7 +2927,7 @@ resource "google_sql_database_instance" "instance" {
 }`, databaseName, tier)
 }
 
-func testGoogleSqlDatabaseInstance_sqlMysqlDataCacheConfig(instanceName string) string {
+func testGoogleSqlDatabaseInstance_sqlMysqlDataCacheConfig(instanceName string, datacache bool) string {
 	return fmt.Sprintf(`
 
 resource "google_sql_database_instance" "instance" {
@@ -2844,13 +2939,13 @@ resource "google_sql_database_instance" "instance" {
     tier = "db-perf-optimized-N-2"
     edition = "ENTERPRISE_PLUS"
     data_cache_config {
-        data_cache_enabled = true
+        data_cache_enabled = "%t"
     }
   }
-}`, instanceName)
+}`, instanceName, datacache)
 }
 
-func testGoogleSqlDatabaseInstance_sqlPostgresDataCacheConfig(instanceName, tier, edition string) string {
+func testGoogleSqlDatabaseInstance_sqlPostgresDataCacheConfig(instanceName, tier, edition string, datacache bool) string {
 	return fmt.Sprintf(`
 
 resource "google_sql_database_instance" "instance" {
@@ -2862,10 +2957,10 @@ resource "google_sql_database_instance" "instance" {
     tier = "%s"
     edition = "%s"
     data_cache_config {
-        data_cache_enabled = true
+        data_cache_enabled = "%t"
     }
   }
-}`, instanceName, tier, edition)
+}`, instanceName, tier, edition, datacache)
 }
 
 func testGoogleSqlDatabaseInstance_SqlServerTimezone(instance, rootPassword, timezone string) string {
@@ -3569,6 +3664,111 @@ func verifyPscOperation(resourceName string, isPscConfigExpected bool, expectedP
 	}
 }
 
+func verifyPscAutoConnectionsOperation(resourceName string, isPscConfigExpected bool, expectedPscEnabled bool, isPscAutoConnectionConfigExpected bool, expectedConsumerNetwork string, expectedConsumerProject string) func(*terraform.State) error {
+	return func(s *terraform.State) error {
+		resource, ok := s.RootModule().Resources[resourceName]
+		if !ok {
+			return fmt.Errorf("Can't find %s in state", resourceName)
+		}
+
+		resourceAttributes := resource.Primary.Attributes
+		_, ok = resourceAttributes["settings.0.ip_configuration.#"]
+		if !ok {
+			return fmt.Errorf("settings.0.ip_configuration.# block is not present in state for %s", resourceName)
+		}
+
+		if isPscConfigExpected {
+			_, ok := resourceAttributes["settings.0.ip_configuration.0.psc_config.#"]
+			if !ok {
+				return fmt.Errorf("settings.0.ip_configuration.0.psc_config property is not present or set in state of %s", resourceName)
+			}
+
+			pscEnabledStr, ok := resourceAttributes["settings.0.ip_configuration.0.psc_config.0.psc_enabled"]
+			pscEnabled, err := strconv.ParseBool(pscEnabledStr)
+			if err != nil || pscEnabled != expectedPscEnabled {
+				return fmt.Errorf("settings.0.ip_configuration.0.psc_config.0.psc_enabled property value is not set as expected in state of %s, expected %v, actual %v", resourceName, expectedPscEnabled, pscEnabled)
+			}
+
+			_, ok = resourceAttributes["settings.0.ip_configuration.0.psc_config.0.psc_auto_connections.#"]
+			if !ok {
+				return fmt.Errorf("settings.0.ip_configuration.0.psc_config.0.psc_auto_connections property is not present or set in state of %s", resourceName)
+			}
+
+			if isPscAutoConnectionConfigExpected {
+				consumerNetwork, ok := resourceAttributes["settings.0.ip_configuration.0.psc_config.0.psc_auto_connections.0.consumer_network"]
+				if !ok || consumerNetwork != expectedConsumerNetwork {
+					return fmt.Errorf("settings.0.ip_configuration.0.psc_config.0.psc_auto_connections.0.consumer_network property is not present or set as expected in state of %s", resourceName)
+				}
+
+				consumerProject, ok := resourceAttributes["settings.0.ip_configuration.0.psc_config.0.psc_auto_connections.0.consumer_service_project_id"]
+				if !ok || consumerProject != expectedConsumerProject {
+					return fmt.Errorf("settings.0.ip_configuration.0.psc_config.0.psc_auto_connections.0.consumer_service_project_id property is not present or set as expected in state of %s", resourceName)
+				}
+			}
+		}
+
+		return nil
+	}
+}
+
+func testAccSqlDatabaseInstance_withPSCEnabled_withoutPscAutoConnections(instanceName string) string {
+	return fmt.Sprintf(`
+resource "google_sql_database_instance" "instance" {
+  name                = "%s"
+  region              = "us-west2"
+  database_version    = "MYSQL_8_0"
+  deletion_protection = false
+  settings {
+    tier = "db-g1-small"
+    ip_configuration {
+		psc_config {
+			psc_enabled = true
+		}
+		ipv4_enabled = false
+    }
+	backup_configuration {
+		enabled = true
+		binary_log_enabled = true
+	}
+	availability_type = "REGIONAL"
+  }
+}
+`, instanceName)
+}
+
+func testAccSqlDatabaseInstance_withPSCEnabled_withPscAutoConnections(instanceName string, projectId string, networkName string) string {
+	return fmt.Sprintf(`
+data "google_compute_network" "testnetwork" {
+  name                    = "%s"
+}
+
+resource "google_sql_database_instance" "instance" {
+  name                = "%s"
+  region              = "us-west2"
+  database_version    = "MYSQL_8_0"
+  deletion_protection = false
+  settings {
+    tier = "db-g1-small"
+    ip_configuration {
+		psc_config {
+			psc_enabled = true
+			psc_auto_connections {
+				consumer_network = "projects/%s/global/networks/%s"
+				consumer_service_project_id = "%s"
+			}
+		}
+		ipv4_enabled = false
+    }
+	backup_configuration {
+		enabled = true
+		binary_log_enabled = true
+	}
+	availability_type = "REGIONAL"
+  }
+}
+`, networkName, instanceName, projectId, networkName, projectId)
+}
+
 func testAccSqlDatabaseInstance_withPrivateNetwork_withoutAllocatedIpRange(databaseName, networkName string, specifyPrivatePathOption bool, enablePrivatePath bool) string {
 	privatePathOption := ""
 	if specifyPrivatePathOption {
@@ -4248,19 +4448,8 @@ data "google_project" "project" {
   project_id = "%{project_id}"
 }
 
-resource "google_kms_key_ring" "keyring" {
-  name     = "%{key_name}"
-  location = "us-central1"
-}
-
-resource "google_kms_crypto_key" "key" {
-
-  name     = "%{key_name}"
-  key_ring = google_kms_key_ring.keyring.id
-}
-
 resource "google_kms_crypto_key_iam_member" "crypto_key" {
-  crypto_key_id = google_kms_crypto_key.key.id
+  crypto_key_id = "%{kms_key_name1}"
   role          = "roles/cloudkms.cryptoKeyEncrypterDecrypter"
 
   member = "serviceAccount:service-${data.google_project.project.number}@gcp-sa-cloud-sql.iam.gserviceaccount.com"
@@ -4271,7 +4460,7 @@ resource "google_sql_database_instance" "master" {
   database_version    = "MYSQL_5_7"
   region              = "us-central1"
   deletion_protection = false
-  encryption_key_name = google_kms_crypto_key.key.id
+  encryption_key_name = "%{kms_key_name1}"
 
   settings {
     tier = "db-n1-standard-1"
@@ -4286,20 +4475,8 @@ resource "google_sql_database_instance" "master" {
   depends_on = [google_kms_crypto_key_iam_member.crypto_key]
 }
 
-resource "google_kms_key_ring" "keyring-rep" {
-
-  name     = "%{key_name}-rep"
-  location = "us-east1"
-}
-
-resource "google_kms_crypto_key" "key-rep" {
-
-  name     = "%{key_name}-rep"
-  key_ring = google_kms_key_ring.keyring-rep.id
-}
-
 resource "google_kms_crypto_key_iam_member" "crypto_key_rep" {
-  crypto_key_id = google_kms_crypto_key.key-rep.id
+  crypto_key_id = "%{kms_key_name2}"
   role          = "roles/cloudkms.cryptoKeyEncrypterDecrypter"
 
   member = "serviceAccount:service-${data.google_project.project.number}@gcp-sa-cloud-sql.iam.gserviceaccount.com"
@@ -4310,7 +4487,7 @@ resource "google_sql_database_instance" "replica" {
   database_version     = "MYSQL_5_7"
   region               = "us-east1"
   master_instance_name = google_sql_database_instance.master.name
-  encryption_key_name = google_kms_crypto_key.key-rep.id
+  encryption_key_name = "%{kms_key_name2}"
   deletion_protection  = false
 
   settings {
